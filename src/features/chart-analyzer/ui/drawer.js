@@ -83,7 +83,42 @@
     return arr.map(fmtLevel).join(', ');
   }
 
-  function renderSuccess({ provider, rawText, parsed, modelUsed, dataUrl }) {
+  function hasRange(parsed) {
+    return parsed && (parsed.range_low != null || parsed.range_high != null);
+  }
+
+  function hasLevels(parsed) {
+    return Boolean(
+      parsed
+      && ((Array.isArray(parsed.support) && parsed.support.length) || (Array.isArray(parsed.resistance) && parsed.resistance.length))
+    );
+  }
+
+  function rawBlocksHtml(rawText, rawJson) {
+    const blocks = [];
+    if (rawText) {
+      blocks.push(`
+        <details class="kite-ext-ca-raw">
+          <summary>Raw response</summary>
+          <pre>${escapeHtml(rawText)}</pre>
+        </details>
+      `);
+    }
+    if (rawJson !== undefined && rawJson !== null) {
+      let serialized;
+      try { serialized = JSON.stringify(rawJson, null, 2); }
+      catch (_) { serialized = String(rawJson); }
+      blocks.push(`
+        <details class="kite-ext-ca-raw">
+          <summary>See raw JSON</summary>
+          <pre>${escapeHtml(serialized)}</pre>
+        </details>
+      `);
+    }
+    return blocks.join('');
+  }
+
+  function renderSuccess({ provider, rawText, rawJson, parsed, modelUsed, dataUrl }) {
     const r = ensureRoot();
     const shownModel = modelUsed || provider?.model || '';
     const fellBack = modelUsed && provider?.model && modelUsed !== provider.model;
@@ -93,6 +128,7 @@
     const body = r.querySelector('[data-role="body"]');
 
     const imgHtml = imagePreviewHtml(dataUrl);
+    const rawHtml = rawBlocksHtml(rawText, rawJson);
     if (parsed) {
       const trend = escapeHtml(parsed.trend || '—');
       const bias = escapeHtml(parsed.bias || '—');
@@ -103,22 +139,19 @@
           <div class="kite-ext-ca-kv"><span>Trend</span><strong>${trend}</strong></div>
           <div class="kite-ext-ca-kv"><span>Bias</span><strong class="kite-ext-ca-bias-${escapeHtml((parsed.bias || '').toLowerCase())}">${bias}</strong></div>
         </section>
-        <section class="kite-ext-ca-range">
+        ${hasRange(parsed) ? `<section class="kite-ext-ca-range">
           <h4>Suggested range</h4>
           <div class="kite-ext-ca-range-row">
             <div><span>Low</span><strong>${fmtLevel(parsed.range_low)}</strong></div>
             <div><span>High</span><strong>${fmtLevel(parsed.range_high)}</strong></div>
           </div>
-        </section>
-        <section class="kite-ext-ca-levels">
+        </section>` : ''}
+        ${hasLevels(parsed) ? `<section class="kite-ext-ca-levels">
           <div><h4>Support</h4><p>${fmtLevels(parsed.support)}</p></div>
           <div><h4>Resistance</h4><p>${fmtLevels(parsed.resistance)}</p></div>
-        </section>
+        </section>` : ''}
         ${notes ? `<section class="kite-ext-ca-notes"><h4>Notes</h4><p>${notes}</p></section>` : ''}
-        <details class="kite-ext-ca-raw">
-          <summary>Raw response</summary>
-          <pre>${escapeHtml(rawText || '')}</pre>
-        </details>
+        ${rawHtml}
       `;
     } else {
       body.innerHTML = `
@@ -127,6 +160,7 @@
           <h4>Response</h4>
           <pre class="kite-ext-ca-freeform">${escapeHtml(rawText || '(empty)')}</pre>
         </section>
+        ${rawHtml}
       `;
     }
   }

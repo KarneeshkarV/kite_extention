@@ -68,14 +68,6 @@
 }
 .kite-ext-ca-provider-label { font-weight: 600; font-size: 14px; color: #0f172a; }
 .kite-ext-ca-provider-model { font-size: 11px; color: #64748b; margin-top: 2px; font-family: ui-monospace, SFMono-Regular, monospace; }
-.kite-ext-ca-provider-tag {
-  margin-top: 6px;
-  font-size: 10px;
-  padding: 2px 6px;
-  background: #fef3c7;
-  color: #92400e;
-  border-radius: 4px;
-}
 .kite-ext-ca-modal-footer {
   padding: 10px 18px 14px;
   font-size: 11px;

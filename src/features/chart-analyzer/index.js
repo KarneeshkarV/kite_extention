@@ -356,12 +356,12 @@
 
     try {
       trace('chart context', chartContext);
-      const { text, modelUsed } = await ca.analyzeChart({ dataUrl, provider, signal: controller.signal, chartContext });
+      const { text, raw, modelUsed } = await ca.analyzeChart({ dataUrl, provider, signal: controller.signal, chartContext });
       const parsed = ca.parseAnalysis(text);
       ca.showDrawer({
         state: 'success',
         provider,
-        data: { rawText: text, parsed, modelUsed, dataUrl },
+        data: { rawText: text, rawJson: raw, parsed, modelUsed, dataUrl },
       });
     } catch (err) {
       if (err.name === 'AbortError') { log('analysis aborted'); return; }

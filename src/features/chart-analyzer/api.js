@@ -24,8 +24,29 @@
     'Use null for any numeric field you cannot reliably read from the image. Do not wrap the JSON in markdown fences.',
   ].join('\n');
 
-  function buildPrompt(chartContext) {
-    const lines = [...ANALYSIS_PROMPT];
+  const CLAUDE_ANALYSIS_PROMPT = [
+    'You are performing visual chart classification on a stock/F&O chart image from Zerodha Kite.',
+    'Analyze only the image and only the visible chart structure. Do not provide trading advice, portfolio advice, entry/exit plans, price targets, support/resistance calls, or buy/sell instructions.',
+    'Your task is limited to identifying whether the visible chart looks bullish, bearish, or neutral, then briefly explain the visible reasons using price action, momentum, candle behavior, volatility, and volume if volume is visible.',
+    'If the image is unclear or mixed, return neutral and say why. Do not invent off-screen context.',
+    '',
+    'Respond with a single JSON object and nothing else. Schema:',
+    '{',
+    '  "trend": "uptrend" | "downtrend" | "sideways",',
+    '  "support": [],',
+    '  "resistance": [],',
+    '  "range_low": null,',
+    '  "range_high": null,',
+    '  "bias": "bullish" | "bearish" | "neutral",',
+    '  "notes": "2-4 short sentences describing only visible chart evidence, including volume when visible"',
+    '}',
+    '',
+    'Always return empty arrays for support/resistance and null for range_low/range_high. Do not wrap the JSON in markdown fences.',
+  ].join('\n');
+
+  function buildPrompt(chartContext, provider) {
+    const prompt = provider?.id === 'claude' ? CLAUDE_ANALYSIS_PROMPT : ANALYSIS_PROMPT;
+    const lines = prompt.split('\n');
     if (!chartContext) return lines.join('\n');
 
     const extra = [];
@@ -41,7 +62,7 @@
     return lines.join('\n');
   }
 
-  async function callOnce({ dataUrl, model, signal, chartContext }) {
+  async function callOnce({ dataUrl, model, signal, chartContext, provider }) {
     const endpoint = ns.chartAnalyzer.endpoint;
     const body = {
       model,
@@ -49,7 +70,7 @@
         {
           role: 'user',
           content: [
-            { type: 'text', text: buildPrompt(chartContext) },
+            { type: 'text', text: buildPrompt(chartContext, provider) },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
         },
@@ -96,7 +117,7 @@
     for (let i = 0; i < models.length; i++) {
       const model = models[i];
       try {
-        const result = await callOnce({ dataUrl, model, signal, chartContext });
+        const result = await callOnce({ dataUrl, model, signal, chartContext, provider });
         return { ...result, modelUsed: model };
       } catch (err) {
         lastErr = err;

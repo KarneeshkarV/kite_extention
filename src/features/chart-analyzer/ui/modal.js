@@ -46,7 +46,6 @@
         btn.innerHTML = `
           <span class="kite-ext-ca-provider-label">${p.label}</span>
           <span class="kite-ext-ca-provider-model">${p.model}</span>
-          ${p.supportsVision ? '' : '<span class="kite-ext-ca-provider-tag">text-only for now</span>'}
         `;
         btn.addEventListener('click', () => closeCurrent(p));
         body.appendChild(btn);
