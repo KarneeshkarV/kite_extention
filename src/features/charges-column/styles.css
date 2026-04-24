@@ -1,0 +1,32 @@
+.kite-ext-col,
+.kite-ext-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kite-ext-col {
+  cursor: help;
+}
+
+.kite-ext-est {
+  color: var(--color-muted, #8a8f98);
+  font-weight: 400;
+}
+
+.kite-ext-cell-total {
+  font-weight: 500;
+  color: var(--color-text, inherit);
+}
+
+.kite-ext-cell-netpnl {
+  font-weight: 500;
+}
+
+.kite-ext-pos {
+  color: #27ae60;
+}
+
+.kite-ext-neg {
+  color: #e74c3c;
+}

@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Kite Charges Viewer",
+  "version": "0.1.0",
+  "description": "Adds estimated brokerage, STT, and total-charges columns to the Positions table on kite.zerodha.com. 100% local, no network calls.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://kite.zerodha.com/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://kite.zerodha.com/*"],
+      "run_at": "document_idle",
+      "js": [
+        "src/lib/format.js",
+        "src/lib/dom.js",
+        "src/lib/storage.js",
+        "src/lib/charges.js",
+        "src/features/charges-column/index.js",
+        "src/registry.js",
+        "src/content.js"
+      ],
+      "css": ["src/features/charges-column/styles.css"]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "kite-charges@local",
+      "strict_min_version": "115.0"
+    }
+  }
+}
