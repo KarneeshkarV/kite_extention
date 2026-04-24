@@ -5,8 +5,10 @@
   ns.chartAnalyzer = ns.chartAnalyzer || {};
 
   const ANALYSIS_PROMPT = [
-    'You are a seasoned technical analyst. The attached image is a stock/F&O chart from Zerodha Kite.',
-    'Analyze price action, trend, momentum, and any visible indicators.',
+    'You are a disciplined technical analyst reviewing a stock/F&O chart from Zerodha Kite.',
+    'Analyze only what is visible on the chart. Focus on market structure, price action, trend, momentum, volatility, candle behavior, and any visible indicators.',
+    'If volume bars/pane are visible, you must use volume to improve the judgment: check whether breakouts, breakdowns, reversals, and trend continuation are confirmed or weakened by volume expansion, contraction, or divergence.',
+    'Prioritize high-probability nearby support/resistance levels that are actually visible. Do not invent levels or certainty when the image is unclear.',
     '',
     'Respond with a single JSON object and nothing else. Schema:',
     '{',
@@ -16,10 +18,10 @@
     '  "range_low": number,            // suggested buy-zone low',
     '  "range_high": number,           // suggested sell-zone high',
     '  "bias": "bullish" | "bearish" | "neutral",',
-    '  "notes": "2-4 short sentences summarizing rationale"',
+    '  "notes": "2-4 short sentences summarizing rationale, including the role of volume when visible"',
     '}',
     '',
-    'If you cannot read a price from the image, use null for that field. Do not wrap the JSON in markdown fences.',
+    'Use null for any numeric field you cannot reliably read from the image. Do not wrap the JSON in markdown fences.',
   ].join('\n');
 
   async function callOnce({ dataUrl, model, signal }) {
