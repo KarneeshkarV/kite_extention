@@ -20,6 +20,9 @@
   const MIN_H = 200;
   // Tag name of elements we refuse to walk up into (global page layout chrome).
   const STOP_TAGS = new Set(['BODY', 'HTML', 'MAIN']);
+  const ACTIVE_CLASS_RE = /\b(active|selected|current|checked|highlight|focused|on)\b/i;
+  const TICKER_HINT_RE = /(instrument|symbol|ticker|tradingsymbol|scrip|contract|header|title|name)/i;
+  const UI_NOISE_RE = /\b(indicators?|studies?|templates?|compare|alert|alerts|depth|settings?|layout|save|publish|buy|sell|orders?|positions?|holdings?|market\s*depth|chart|option\s*chain|analytics?)\b/i;
 
   let disconnectObserver = null;
   let inFlightAbort = null;
@@ -92,6 +95,189 @@
     return { host: container, target: container };
   }
 
+  function isVisible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function cleanText(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function isActiveLike(el) {
+    if (!el) return false;
+    if (el.getAttribute('aria-selected') === 'true') return true;
+    if (el.getAttribute('aria-pressed') === 'true') return true;
+    if (el.getAttribute('aria-current') && el.getAttribute('aria-current') !== 'false') return true;
+    const cls = `${el.className || ''} ${el.id || ''}`;
+    return ACTIVE_CLASS_RE.test(cls);
+  }
+
+  function normalizeRange(text) {
+    const t = cleanText(text).toUpperCase();
+    if (!t) return null;
+    if (/^(YTD|MAX)$/.test(t)) return t;
+    let m = t.match(/^(\d+)\s*(D|W|M|Y)$/);
+    if (m) return `${m[1]}${m[2]}`;
+    m = t.match(/^(\d+)\s*(DAY|DAYS|WEEK|WEEKS|MONTH|MONTHS|YEAR|YEARS)$/);
+    if (!m) return null;
+    const map = { DAY: 'D', DAYS: 'D', WEEK: 'W', WEEKS: 'W', MONTH: 'M', MONTHS: 'M', YEAR: 'Y', YEARS: 'Y' };
+    return `${m[1]}${map[m[2]]}`;
+  }
+
+  function normalizeInterval(text) {
+    const t = cleanText(text).toLowerCase();
+    if (!t) return null;
+    const m = t.match(/^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks|mo|month|months)$/i);
+    if (!m) return null;
+    const unit = m[2].toLowerCase();
+    const map = {
+      s: 'sec', sec: 'sec', secs: 'sec', second: 'sec', seconds: 'sec',
+      m: 'min', min: 'min', mins: 'min', minute: 'min', minutes: 'min',
+      h: 'hour', hr: 'hour', hrs: 'hour', hour: 'hour', hours: 'hour',
+      d: 'day', day: 'day', days: 'day',
+      w: 'week', wk: 'week', wks: 'week', week: 'week', weeks: 'week',
+      mo: 'month', month: 'month', months: 'month',
+    };
+    return `${m[1]} ${map[unit]}`;
+  }
+
+  function looksLikeTicker(text) {
+    const t = cleanText(text);
+    if (!t || t.length < 2 || t.length > 40) return false;
+    if (UI_NOISE_RE.test(t)) return false;
+    if (!/[A-Za-z]/.test(t)) return false;
+    if (t.includes('\n')) return false;
+    const tokens = t.split(' ');
+    if (tokens.length > 6) return false;
+    if (tokens.some((token) => token.length > 20)) return false;
+    return /^[A-Za-z0-9&._:-]+(?: [A-Za-z0-9&._:-]+){0,5}$/.test(t);
+  }
+
+  function collectContextRoots(container) {
+    const roots = [];
+    const add = (el) => {
+      if (!el || roots.includes(el)) return;
+      roots.push(el);
+    };
+    add(container);
+    add(container.parentElement);
+    add(container.parentElement?.previousElementSibling);
+    add(container.parentElement?.nextElementSibling);
+
+    let el = container.parentElement;
+    for (let i = 0; i < 3 && el && !STOP_TAGS.has(el.tagName); i++, el = el.parentElement) {
+      add(el);
+      add(el.previousElementSibling);
+      add(el.nextElementSibling);
+    }
+
+    return roots.filter(Boolean);
+  }
+
+  function collectTextCandidates(roots) {
+    const items = [];
+    const seen = new Set();
+    const selectors = [
+      'button',
+      '[role="button"]',
+      '[role="tab"]',
+      '[aria-selected]',
+      '[aria-pressed]',
+      '[aria-current]',
+      'h1',
+      'h2',
+      'h3',
+      '[class*="header"]',
+      '[class*="title"]',
+      '[class*="symbol"]',
+      '[class*="ticker"]',
+      '[class*="instrument"]',
+      '[class*="tradingsymbol"]',
+      '[class*="range"]',
+      '[class*="interval"]',
+      '[class*="time"]',
+    ].join(',');
+
+    roots.forEach((root, rootIndex) => {
+      if (!isVisible(root)) return;
+      const nodes = root.matches?.(selectors) ? [root] : [];
+      root.querySelectorAll?.(selectors).forEach((node) => nodes.push(node));
+      nodes.forEach((node) => {
+        if (!isVisible(node)) return;
+        const text = cleanText(node.innerText || node.textContent);
+        if (!text || text.length > 60) return;
+        const key = `${rootIndex}:${node.tagName}:${text}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        items.push({ node, text, rootIndex });
+      });
+    });
+
+    return items;
+  }
+
+  function pickRange(candidates) {
+    const ranked = candidates
+      .map((item) => {
+        const value = normalizeRange(item.text);
+        if (!value) return null;
+        return {
+          value,
+          score: (isActiveLike(item.node) ? 10 : 0) + (10 - item.rootIndex),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+    return ranked[0]?.value || null;
+  }
+
+  function pickInterval(candidates) {
+    const ranked = candidates
+      .map((item) => {
+        const value = normalizeInterval(item.text);
+        if (!value) return null;
+        return {
+          value,
+          score: (isActiveLike(item.node) ? 10 : 0) + (10 - item.rootIndex),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+    return ranked[0]?.value || null;
+  }
+
+  function pickTicker(candidates) {
+    const ranked = candidates
+      .map((item) => {
+        if (!looksLikeTicker(item.text)) return null;
+        const attrs = `${item.node.className || ''} ${item.node.id || ''}`;
+        let score = 10 - item.rootIndex;
+        if (isActiveLike(item.node)) score += 6;
+        if (TICKER_HINT_RE.test(attrs)) score += 10;
+        if (/^H[1-3]$/.test(item.node.tagName)) score += 4;
+        if (/[A-Z]/.test(item.text) && item.text === item.text.toUpperCase()) score += 3;
+        if (item.text.length <= 20) score += 2;
+        return { value: item.text, score };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+    return ranked[0]?.value || null;
+  }
+
+  function extractChartContext(container) {
+    const roots = collectContextRoots(container);
+    const candidates = collectTextCandidates(roots);
+    return {
+      ticker: pickTicker(candidates),
+      range: pickRange(candidates),
+      interval: pickInterval(candidates),
+    };
+  }
+
   function attachButton(container) {
     if (container.getAttribute(MARK_ATTR)) return;
     const pair = resolveHostAndTarget(container);
@@ -149,6 +335,7 @@
     }
     const controller = new AbortController();
     inFlightAbort = controller;
+    const chartContext = extractChartContext(container);
 
     // Capture BEFORE showing the drawer — the drawer slides in from the right
     // and would otherwise occlude the chart in the screenshot.
@@ -168,7 +355,8 @@
     ca.showDrawer({ state: 'loading', provider, data: { dataUrl } });
 
     try {
-      const { text, modelUsed } = await ca.analyzeChart({ dataUrl, provider, signal: controller.signal });
+      trace('chart context', chartContext);
+      const { text, modelUsed } = await ca.analyzeChart({ dataUrl, provider, signal: controller.signal, chartContext });
       const parsed = ca.parseAnalysis(text);
       ca.showDrawer({
         state: 'success',

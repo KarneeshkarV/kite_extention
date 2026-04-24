@@ -24,7 +24,24 @@
     'Use null for any numeric field you cannot reliably read from the image. Do not wrap the JSON in markdown fences.',
   ].join('\n');
 
-  async function callOnce({ dataUrl, model, signal }) {
+  function buildPrompt(chartContext) {
+    const lines = [...ANALYSIS_PROMPT];
+    if (!chartContext) return lines.join('\n');
+
+    const extra = [];
+    if (chartContext.ticker) extra.push(`Ticker: ${chartContext.ticker}`);
+    if (chartContext.range) extra.push(`Chart range: ${chartContext.range}`);
+    if (chartContext.interval) extra.push(`Candle interval: ${chartContext.interval}`);
+    if (!extra.length) return lines.join('\n');
+
+    lines.push('');
+    lines.push('Additional chart context extracted from the page chrome:');
+    extra.forEach((line) => lines.push(line));
+    lines.push('Use this as supporting context, but prefer the image if there is any conflict.');
+    return lines.join('\n');
+  }
+
+  async function callOnce({ dataUrl, model, signal, chartContext }) {
     const endpoint = ns.chartAnalyzer.endpoint;
     const body = {
       model,
@@ -32,7 +49,7 @@
         {
           role: 'user',
           content: [
-            { type: 'text', text: ANALYSIS_PROMPT },
+            { type: 'text', text: buildPrompt(chartContext) },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
         },
@@ -73,13 +90,13 @@
     return msg.includes('model') && (msg.includes('not') || msg.includes('unknown') || msg.includes('unsupported'));
   }
 
-  async function analyzeChart({ dataUrl, provider, signal }) {
+  async function analyzeChart({ dataUrl, provider, signal, chartContext }) {
     const models = [provider.model, ...(provider.fallbackModels || [])];
     let lastErr;
     for (let i = 0; i < models.length; i++) {
       const model = models[i];
       try {
-        const result = await callOnce({ dataUrl, model, signal });
+        const result = await callOnce({ dataUrl, model, signal, chartContext });
         return { ...result, modelUsed: model };
       } catch (err) {
         lastErr = err;
