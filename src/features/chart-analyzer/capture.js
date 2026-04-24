@@ -43,7 +43,19 @@
       throw new Error('Chart element has zero size');
     }
 
-    const fullDataUrl = await requestFullTabScreenshot();
+    // Hide our own injected UI while the screenshot is taken so the Analyze
+    // button / any leftover overlay doesn't end up in the captured image.
+    const hidden = document.querySelectorAll('.kite-ext-ca-btn, .kite-ext-ca-drawer, .kite-ext-ca-modal-backdrop');
+    const prev = [];
+    hidden.forEach((n) => { prev.push([n, n.style.visibility]); n.style.visibility = 'hidden'; });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    let fullDataUrl;
+    try {
+      fullDataUrl = await requestFullTabScreenshot();
+    } finally {
+      prev.forEach(([n, v]) => { n.style.visibility = v; });
+    }
     const img = await loadImage(fullDataUrl);
 
     // captureVisibleTab returns an image at device pixels; scale factor

@@ -150,8 +150,8 @@
     const controller = new AbortController();
     inFlightAbort = controller;
 
-    ca.showDrawer({ state: 'loading', provider });
-
+    // Capture BEFORE showing the drawer — the drawer slides in from the right
+    // and would otherwise occlude the chart in the screenshot.
     let dataUrl;
     try {
       dataUrl = await ca.captureElement(container);
@@ -165,7 +165,6 @@
       return;
     }
 
-    // Show the captured image immediately so the user can see what was sent.
     ca.showDrawer({ state: 'loading', provider, data: { dataUrl } });
 
     try {
