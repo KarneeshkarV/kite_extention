@@ -18,6 +18,9 @@
   function discoverOptionalColumns(thead, headerIndex) {
     const ths = thead.querySelectorAll('tr > th');
     ths.forEach((th, i) => {
+      // Skip headers we injected — "Net P&L" would otherwise match the p&l rule
+      // and cause extractRowData to read its own prior output as gross P&L.
+      if (th.classList.contains('kite-ext-col')) return;
       const t = ns.dom.norm(th.textContent);
       if (t === 'product' || t.startsWith('product')) headerIndex.product = i;
       if (t === 'p&l' || t.includes('p&l') || t.includes('pnl') || t.includes('p & l')) headerIndex.pnl = i;
