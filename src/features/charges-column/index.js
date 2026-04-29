@@ -14,6 +14,7 @@
   let cancelled = false;
   let snapshot = {}; // key -> { buy_avg, qty, ts }
   let lastFound = null;
+  let mode = 'positions'; // 'positions' | 'holdings'
 
   function discoverOptionalColumns(thead, headerIndex) {
     const ths = thead.querySelectorAll('tr > th');
@@ -44,12 +45,24 @@
     if (!tradingsymbol) {
       const tokens = (instrumentCell.textContent || '').toUpperCase().trim().split(/\s+/);
       tradingsymbol = tokens[0] || '';
-      const tail = tokens[tokens.length - 1] || '';
-      if (/^(NSE|BSE|NFO|BFO|CDS|BCD|MCX)$/.test(tail)) exchange = tail;
+      // Only treat the trailing token as an exchange tag when it's distinct
+      // from the symbol — otherwise tickers like "MCX" (the stock) get
+      // misread as the MCX commodity exchange.
+      if (tokens.length > 1) {
+        const tail = tokens[tokens.length - 1] || '';
+        if (/^(NSE|BSE|NFO|BFO|CDS|BCD|MCX)$/.test(tail)) exchange = tail;
+      }
     }
 
     const productCell = headerIndex.product != null ? cells[headerIndex.product] : null;
-    const product = productCell ? (productCell.textContent || '').trim().toUpperCase() : '';
+    let product = productCell ? (productCell.textContent || '').trim().toUpperCase() : '';
+
+    // Holdings are always delivery (CNC) on NSE/BSE; the holdings UI usually
+    // doesn't render the exchange tag inline, so fill in safe defaults.
+    if (mode === 'holdings') {
+      if (!product) product = 'CNC';
+      if (!exchange) exchange = 'NSE';
+    }
 
     return {
       tradingsymbol,
@@ -62,13 +75,27 @@
     };
   }
 
+  // Brokerage on EQ_DELIVERY is always ₹0, so the column is dead weight on the
+  // Holdings tab — hide it there.
+  function activeHeaders() {
+    return mode === 'holdings'
+      ? NEW_HEADERS.filter((h) => h.key !== 'brokerage')
+      : NEW_HEADERS;
+  }
+
   function ensureHeaders(thead, headerRow) {
+    const headers = activeHeaders();
     const existing = thead.querySelectorAll('th.kite-ext-col');
-    if (existing.length === NEW_HEADERS.length) return;
+    const existingKeys = Array.from(existing).map((th) => th.dataset.key || '');
+    const desiredKeys = headers.map((h) => h.key);
+    const matches = existing.length === headers.length &&
+      existingKeys.every((k, i) => k === desiredKeys[i]);
+    if (matches) return;
     existing.forEach((n) => n.remove());
-    for (const h of NEW_HEADERS) {
+    for (const h of headers) {
       const th = document.createElement('th');
       th.className = 'kite-ext-col kite-ext-col-' + h.key;
+      th.dataset.key = h.key;
       th.textContent = h.label;
       th.title = h.title;
       headerRow.appendChild(th);
@@ -76,13 +103,19 @@
   }
 
   function ensureRowCells(row) {
+    const headers = activeHeaders();
     const existing = row.querySelectorAll('td.kite-ext-cell');
-    if (existing.length === NEW_HEADERS.length) return Array.from(existing);
+    const existingKeys = Array.from(existing).map((td) => td.dataset.key || '');
+    const desiredKeys = headers.map((h) => h.key);
+    const matches = existing.length === headers.length &&
+      existingKeys.every((k, i) => k === desiredKeys[i]);
+    if (matches) return Array.from(existing);
     existing.forEach((n) => n.remove());
     const cells = [];
-    for (const h of NEW_HEADERS) {
+    for (const h of headers) {
       const td = document.createElement('td');
       td.className = 'kite-ext-cell kite-ext-est kite-ext-cell-' + h.key;
+      td.dataset.key = h.key;
       row.appendChild(td);
       cells.push(td);
     }
@@ -139,6 +172,8 @@
   }
 
   function writeCells(cells, result) {
+    const byKey = {};
+    cells.forEach((c) => { byKey[c.dataset.key] = c; });
     if (!result) {
       cells.forEach((c) => {
         c.textContent = '—';
@@ -147,12 +182,14 @@
       return;
     }
     const { charges, netPnl } = result;
-    cells[0].textContent = ns.format.inr(charges.brokerage);
-    cells[1].textContent = ns.format.inr(charges.stt);
-    cells[2].textContent = ns.format.inr(charges.total);
-    cells[3].textContent = ns.format.inr(netPnl);
-    cells[3].classList.toggle('kite-ext-pos', Number.isFinite(netPnl) && netPnl > 0);
-    cells[3].classList.toggle('kite-ext-neg', Number.isFinite(netPnl) && netPnl < 0);
+    if (byKey.brokerage) byKey.brokerage.textContent = ns.format.inr(charges.brokerage);
+    if (byKey.stt) byKey.stt.textContent = ns.format.inr(charges.stt);
+    if (byKey.total) byKey.total.textContent = ns.format.inr(charges.total);
+    if (byKey.netpnl) {
+      byKey.netpnl.textContent = ns.format.inr(netPnl);
+      byKey.netpnl.classList.toggle('kite-ext-pos', Number.isFinite(netPnl) && netPnl > 0);
+      byKey.netpnl.classList.toggle('kite-ext-neg', Number.isFinite(netPnl) && netPnl < 0);
+    }
   }
 
   function renderTable(found) {
@@ -164,10 +201,31 @@
     discoverOptionalColumns(thead, headerIndex);
     ensureHeaders(thead, headerRow);
 
+    // Largest header index we need to address — used to spot rows that span
+    // columns (e.g. the holdings "Total" row uses colspan and so has fewer tds).
+    const maxIdx = Math.max(
+      headerIndex.instrument ?? -1,
+      headerIndex.qty ?? -1,
+      headerIndex.avg ?? -1,
+      headerIndex.ltp ?? -1,
+      headerIndex.pnl ?? -1,
+    );
+
     const rows = table.querySelectorAll('tbody > tr');
     rows.forEach((row) => {
-      if (row.classList.contains('total') || row.querySelector('th')) {
-        ensureRowCells(row).forEach((c) => (c.textContent = ''));
+      const tds = row.querySelectorAll('td');
+      const instrumentText = tds[headerIndex.instrument]
+        ? ns.dom.norm(tds[headerIndex.instrument].textContent)
+        : '';
+      const looksLikeTotal =
+        row.classList.contains('total') ||
+        !!row.querySelector('th') ||
+        instrumentText === 'total' ||
+        instrumentText.startsWith('total ') ||
+        tds.length <= maxIdx;
+      if (looksLikeTotal) {
+        // Don't inject placeholder cells into spanning/total rows.
+        row.querySelectorAll('td.kite-ext-cell').forEach((n) => n.remove());
         return;
       }
       const data = extractRowData(row, headerIndex);
@@ -184,15 +242,25 @@
   const feature = {
     id: 'charges-column',
     match: (url) => {
-      try { return new URL(url).pathname.includes('/positions'); }
-      catch { return false; }
+      try {
+        const path = new URL(url).pathname;
+        return path.includes('/positions') || path.includes('/holdings');
+      } catch { return false; }
     },
     activate(ctx) {
       cancelled = false;
-      ctx.log('charges-column activated');
+      try {
+        mode = location.pathname.includes('/holdings') ? 'holdings' : 'positions';
+      } catch { mode = 'positions'; }
+      ctx.log('charges-column activated', mode);
 
       // Start observer immediately so open positions render without waiting for storage.
       disconnectObserver = ns.dom.observeDom(() => {
+        // SPA may swap /positions <-> /holdings without re-activating the feature,
+        // so refresh mode each tick.
+        try {
+          mode = location.pathname.includes('/holdings') ? 'holdings' : 'positions';
+        } catch { /* keep prior mode */ }
         const found = ns.dom.findTableByHeaders(REQUIRED_HEADERS);
         if (!found) return;
         lastFound = found;
