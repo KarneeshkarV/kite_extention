@@ -6,9 +6,12 @@
 
   const ANALYSIS_PROMPT = [
     'You are a disciplined technical analyst reviewing a stock/F&O chart from Zerodha Kite.',
+    'This is for learning and paper-trading style education only. Do not present the result as personalized financial advice or a guaranteed instruction to trade.',
     'Analyze only what is visible on the chart. Focus on market structure, price action, trend, momentum, volatility, candle behavior, and any visible indicators.',
+    'Use web search when the backend makes it available, especially for recent ticker-specific market news or events. Keep the visible chart as the primary evidence, and mention when web context materially changes the call.',
     'If volume bars/pane are visible, you must use volume to improve the judgment: check whether breakouts, breakdowns, reversals, and trend continuation are confirmed or weakened by volume expansion, contraction, or divergence.',
     'Prioritize high-probability nearby support/resistance levels that are actually visible. Do not invent levels or certainty when the image is unclear.',
+    'Estimate stop_loss and target from the visible chart levels and current/last traded price if readable. For a sell call, stop_loss should normally be above the current/entry area and target below it. For a buy/bullish call, stop_loss should normally be below the current/entry area and target above it.',
     '',
     'Respond with a single JSON object and nothing else. Schema:',
     '{',
@@ -18,30 +21,40 @@
     '  "range_low": number,            // suggested buy-zone low',
     '  "range_high": number,           // suggested sell-zone high',
     '  "bias": "bullish" | "bearish" | "neutral",',
+    '  "call": "buy" | "sell" | "bullish" | "neutral",',
+    '  "stop_loss": number,            // educational estimate, not a trading instruction',
+    '  "target": number,               // educational estimate, not a trading instruction',
+    '  "web_sources": [{"title": string, "url": string}, ...],',
     '  "notes": "2-4 short sentences summarizing rationale, including the role of volume when visible"',
     '}',
     '',
-    'Use null for any numeric field you cannot reliably read from the image. Do not wrap the JSON in markdown fences.',
+    'Use null for any numeric field you cannot reliably read from the image. Use an empty array for web_sources when web search is unavailable or irrelevant. Do not wrap the JSON in markdown fences.',
   ].join('\n');
 
   const CLAUDE_ANALYSIS_PROMPT = [
     'You are performing visual chart classification on a stock/F&O chart image from Zerodha Kite.',
-    'Analyze only the image and only the visible chart structure. Do not provide trading advice, portfolio advice, entry/exit plans, price targets, support/resistance calls, or buy/sell instructions.',
-    'Your task is limited to identifying whether the visible chart looks bullish, bearish, or neutral, then briefly explain the visible reasons using price action, momentum, candle behavior, volatility, and volume if volume is visible.',
+    'This is for learning and paper-trading style education only. Do not present the result as personalized financial advice or a guaranteed instruction to trade.',
+    'Analyze the visible chart structure first. Use web search when the backend makes it available, especially for recent ticker-specific market news or events, but do not let web context override clear visible chart evidence.',
+    'Identify whether the visible chart looks bullish, bearish, or neutral, estimate an educational buy/sell/bullish/neutral call, and briefly explain the visible reasons using price action, momentum, candle behavior, volatility, and volume if volume is visible.',
     'If the image is unclear or mixed, return neutral and say why. Do not invent off-screen context.',
+    'Estimate stop_loss and target only when readable nearby levels support them; otherwise return null.',
     '',
     'Respond with a single JSON object and nothing else. Schema:',
     '{',
     '  "trend": "uptrend" | "downtrend" | "sideways",',
-    '  "support": [],',
-    '  "resistance": [],',
-    '  "range_low": null,',
-    '  "range_high": null,',
+    '  "support": [number, ...],',
+    '  "resistance": [number, ...],',
+    '  "range_low": number,',
+    '  "range_high": number,',
     '  "bias": "bullish" | "bearish" | "neutral",',
+    '  "call": "buy" | "sell" | "bullish" | "neutral",',
+    '  "stop_loss": number,',
+    '  "target": number,',
+    '  "web_sources": [{"title": string, "url": string}, ...],',
     '  "notes": "2-4 short sentences describing only visible chart evidence, including volume when visible"',
     '}',
     '',
-    'Always return empty arrays for support/resistance and null for range_low/range_high. Do not wrap the JSON in markdown fences.',
+    'Use null for any numeric field you cannot reliably read from the image. Use an empty array for web_sources when web search is unavailable or irrelevant. Do not wrap the JSON in markdown fences.',
   ].join('\n');
 
   function buildPrompt(chartContext, provider) {
@@ -62,6 +75,39 @@
     return lines.join('\n');
   }
 
+  function backendFetch({ url, method, headers, body, signal, id }) {
+    return new Promise((resolve, reject) => {
+      let onAbort;
+      if (signal) {
+        if (signal.aborted) {
+          const e = new Error('Aborted'); e.name = 'AbortError';
+          return reject(e);
+        }
+        onAbort = () => {
+          try { chrome.runtime.sendMessage({ type: 'BACKEND_FETCH_ABORT', id }); } catch (_) {}
+        };
+        signal.addEventListener('abort', onAbort);
+      }
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'BACKEND_FETCH', id, url, method, headers, body },
+          (resp) => {
+            if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+            const lastErr = chrome.runtime.lastError;
+            if (lastErr) return reject(new Error(lastErr.message));
+            if (!resp) return reject(new Error('No response from background'));
+            if (resp.aborted) { const e = new Error('Aborted'); e.name = 'AbortError'; return reject(e); }
+            if (!resp.ok) return reject(new Error(resp.error || 'Background fetch failed'));
+            resolve(resp);
+          }
+        );
+      } catch (e) {
+        if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+        reject(e);
+      }
+    });
+  }
+
   async function callOnce({ dataUrl, model, signal, chartContext, provider }) {
     const endpoint = ns.chartAnalyzer.endpoint;
     const body = {
@@ -78,7 +124,10 @@
       stream: false,
     };
 
-    const res = await fetch(endpoint, {
+    const reqId = `ca-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const resp = await backendFetch({
+      id: reqId,
+      url: endpoint,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -88,15 +137,17 @@
       signal,
     });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      const err = new Error(`Backend ${res.status}: ${text.slice(0, 1200) || res.statusText}`);
-      err.status = res.status;
+    if (resp.status < 200 || resp.status >= 300) {
+      const text = resp.body || '';
+      const err = new Error(`Backend ${resp.status}: ${text.slice(0, 1200) || resp.statusText}`);
+      err.status = resp.status;
       err.body = text;
       throw err;
     }
 
-    const json = await res.json();
+    let json;
+    try { json = JSON.parse(resp.body); }
+    catch (e) { throw new Error(`Invalid JSON from backend: ${e.message}`); }
     const text = json?.choices?.[0]?.message?.content ?? '';
     return { text: typeof text === 'string' ? text : JSON.stringify(text), raw: json };
   }

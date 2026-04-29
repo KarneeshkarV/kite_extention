@@ -1,5 +1,30 @@
 'use strict';
 
+const inFlightFetches = new Map();
+
+async function doBackendFetch(msg, sendResponse) {
+  const controller = new AbortController();
+  if (msg.id) inFlightFetches.set(msg.id, controller);
+  try {
+    const res = await fetch(msg.url, {
+      method: msg.method || 'GET',
+      headers: msg.headers || {},
+      body: msg.body,
+      signal: controller.signal,
+    });
+    const body = await res.text();
+    sendResponse({ ok: true, status: res.status, statusText: res.statusText, body });
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      aborted: err && err.name === 'AbortError',
+      error: (err && err.message) || String(err),
+    });
+  } finally {
+    if (msg.id) inFlightFetches.delete(msg.id);
+  }
+}
+
 function doCapture(windowId, sendResponse) {
   const opts = { format: 'png' };
   const cb = (dataUrl) => {
@@ -30,7 +55,18 @@ function doCapture(windowId, sendResponse) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || msg.type !== 'CAPTURE_VISIBLE_TAB') return;
+  if (!msg) return;
+  if (msg.type === 'BACKEND_FETCH') {
+    doBackendFetch(msg, sendResponse);
+    return true;
+  }
+  if (msg.type === 'BACKEND_FETCH_ABORT') {
+    const ctl = inFlightFetches.get(msg.id);
+    if (ctl) { try { ctl.abort(); } catch (_) {} }
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.type !== 'CAPTURE_VISIBLE_TAB') return;
   const windowId = sender?.tab?.windowId;
 
   // Verify that we actually have host permission for <all_urls> before

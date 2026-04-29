@@ -87,11 +87,39 @@
     return parsed && (parsed.range_low != null || parsed.range_high != null);
   }
 
+  function hasPlan(parsed) {
+    return parsed && (parsed.stop_loss != null || parsed.target != null);
+  }
+
   function hasLevels(parsed) {
     return Boolean(
       parsed
       && ((Array.isArray(parsed.support) && parsed.support.length) || (Array.isArray(parsed.resistance) && parsed.resistance.length))
     );
+  }
+
+  function safeHttpUrl(url) {
+    try {
+      const parsed = new URL(String(url || ''));
+      return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function webSourcesHtml(sources) {
+    if (!Array.isArray(sources) || !sources.length) return '';
+    const items = sources
+      .map((source) => {
+        const url = safeHttpUrl(source?.url);
+        if (!url) return '';
+        const title = escapeHtml(source?.title || url);
+        return `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${title}</a></li>`;
+      })
+      .filter(Boolean)
+      .join('');
+    if (!items) return '';
+    return `<section class="kite-ext-ca-sources"><h4>Web sources</h4><ul>${items}</ul></section>`;
   }
 
   function rawBlocksHtml(rawText, rawJson) {
@@ -132,13 +160,22 @@
     if (parsed) {
       const trend = escapeHtml(parsed.trend || '—');
       const bias = escapeHtml(parsed.bias || '—');
+      const call = escapeHtml(parsed.call || '—');
       const notes = escapeHtml(parsed.notes || '');
       body.innerHTML = `
         ${imgHtml}
         <section class="kite-ext-ca-summary">
           <div class="kite-ext-ca-kv"><span>Trend</span><strong>${trend}</strong></div>
           <div class="kite-ext-ca-kv"><span>Bias</span><strong class="kite-ext-ca-bias-${escapeHtml((parsed.bias || '').toLowerCase())}">${bias}</strong></div>
+          <div class="kite-ext-ca-kv"><span>Call</span><strong class="kite-ext-ca-call-${escapeHtml((parsed.call || '').toLowerCase())}">${call}</strong></div>
         </section>
+        ${hasPlan(parsed) ? `<section class="kite-ext-ca-range">
+          <h4>Educational estimates</h4>
+          <div class="kite-ext-ca-range-row">
+            <div><span>Stop loss</span><strong>${fmtLevel(parsed.stop_loss)}</strong></div>
+            <div><span>Target</span><strong>${fmtLevel(parsed.target)}</strong></div>
+          </div>
+        </section>` : ''}
         ${hasRange(parsed) ? `<section class="kite-ext-ca-range">
           <h4>Suggested range</h4>
           <div class="kite-ext-ca-range-row">
@@ -151,6 +188,7 @@
           <div><h4>Resistance</h4><p>${fmtLevels(parsed.resistance)}</p></div>
         </section>` : ''}
         ${notes ? `<section class="kite-ext-ca-notes"><h4>Notes</h4><p>${notes}</p></section>` : ''}
+        ${webSourcesHtml(parsed.web_sources)}
         ${rawHtml}
       `;
     } else {

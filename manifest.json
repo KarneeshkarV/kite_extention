@@ -18,7 +18,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://kite.zerodha.com/*"],
+      "matches": [
+        "https://kite.zerodha.com/*",
+        "https://www.tradingview.com/*",
+        "https://tradingview.com/*",
+        "https://*.tradingview.com/*"
+      ],
       "run_at": "document_idle",
       "js": [
         "src/lib/format.js",
