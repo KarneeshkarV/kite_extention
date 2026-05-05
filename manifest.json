@@ -20,6 +20,7 @@
     {
       "matches": [
         "https://kite.zerodha.com/*",
+        "https://app.vestedfinance.com/*",
         "https://www.tradingview.com/*",
         "https://tradingview.com/*",
         "https://*.tradingview.com/*"
@@ -31,6 +32,7 @@
         "src/lib/storage.js",
         "src/lib/charges.js",
         "src/features/charges-column/index.js",
+        "src/features/vested-charges/index.js",
         "src/features/chart-analyzer/providers.js",
         "src/features/chart-analyzer/capture.js",
         "src/features/chart-analyzer/api.js",

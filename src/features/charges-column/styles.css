@@ -30,3 +30,57 @@
 .kite-ext-neg {
   color: #e74c3c;
 }
+
+.kite-ext-vested-scroll {
+  max-width: 100%;
+  overflow-x: auto !important;
+  overflow-y: visible;
+  scrollbar-gutter: stable;
+}
+
+.kite-ext-vested-table {
+  width: max-content !important;
+  min-width: 100%;
+}
+
+.kite-ext-vested-compact {
+  min-width: 86px;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.kite-ext-vested-cell-fees {
+  color: #6b7280;
+}
+
+.kite-ext-vested-cell-netpnl,
+.kite-ext-vested-cell-netpct {
+  font-weight: 500;
+}
+
+.kite-ext-vested-summary-net {
+  margin-top: 14px;
+  color: #007a55;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.kite-ext-vested-summary-net span {
+  color: #64748b;
+  font-weight: 400;
+}
+
+.kite-ext-vested-summary-net strong {
+  font-weight: 700;
+}
+
+.kite-ext-vested-summary-net small {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}

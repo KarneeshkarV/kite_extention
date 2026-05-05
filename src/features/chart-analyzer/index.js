@@ -392,7 +392,14 @@
 
   const feature = {
     id: 'chart-analyzer',
-    match: () => true, // observer inside activate gates on actual chart presence
+    match: (url) => {
+      try {
+        const host = new URL(url).hostname;
+        return host === 'kite.zerodha.com' || /(^|\.)tradingview\.com$/i.test(host);
+      } catch {
+        return false;
+      }
+    },
     activate(ctx) {
       log = ctx.log;
       trace('activated on', location.href);

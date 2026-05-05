@@ -183,6 +183,49 @@
     return { segment, brokerage, stt, exchange: exch, sebi, stamp, gst, dp, total };
   }
 
+  const VESTED_RATES = {
+    BASIC: {
+      brokerage_pct: 0.0025,
+      brokerage_cap: 35,
+    },
+    PREMIUM: {
+      brokerage_pct: 0.0015,
+      brokerage_cap: 35,
+    },
+  };
+
+  function vestedBrokerage(value, tier) {
+    const amount = Number(value) || 0;
+    if (amount <= 0) return NaN;
+    const r = VESTED_RATES[(tier || 'BASIC').toUpperCase()] || VESTED_RATES.BASIC;
+    return Math.min(amount * r.brokerage_pct, r.brokerage_cap);
+  }
+
+  function calculateVestedCharges(position, options = {}) {
+    const buyValue = Number(position.total_invested) || 0;
+    const sellValue = Number(position.current_value) || 0;
+    if (buyValue <= 0 || sellValue <= 0) {
+      return { tier: 'BASIC', buyBrokerage: NaN, sellBrokerage: NaN, total: NaN };
+    }
+    const tier = (options.tier || 'BASIC').toUpperCase();
+    const buyBrokerage = vestedBrokerage(buyValue, tier);
+    const sellBrokerage = vestedBrokerage(sellValue, tier);
+    return {
+      tier,
+      buyBrokerage,
+      sellBrokerage,
+      total: buyBrokerage + sellBrokerage,
+    };
+  }
+
   const ns = (window.__KiteExt = window.__KiteExt || {});
-  ns.charges = { RATES, detectSegment, calculateCharges, LAST_VERIFIED: '2026-04-24' };
+  ns.charges = {
+    RATES,
+    VESTED_RATES,
+    detectSegment,
+    calculateCharges,
+    calculateVestedCharges,
+    LAST_VERIFIED: '2026-04-24',
+    VESTED_LAST_VERIFIED: '2026-05-05',
+  };
 })();
